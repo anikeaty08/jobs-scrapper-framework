@@ -52,7 +52,11 @@ def parse_unstop_jobs(html: str, query: JobQuery) -> list[Job]:
         if job_url in seen_urls:
             continue
         seen_urls.add(job_url)
+        salary_el = card.select_one(".salary, .stipend, .prize")
+        salary_text = clean_text(salary_el.get_text(" ")) if salary_el else ""
         text = clean_text(card.get_text(" "))
+        if salary_text:
+            text = clean_text(text.replace(salary_text, ""))
         if not text:
             continue
         parts = [part.strip() for part in text.split("|") if part.strip()]
@@ -62,7 +66,6 @@ def parse_unstop_jobs(html: str, query: JobQuery) -> list[Job]:
             company_el = card.select_one(".company-name, .organisation, .org-name")
             company = clean_text(company_el.get_text(" ")) if company_el else "Unknown"
         location_el = card.select_one(".location, .seperate_box")
-        salary_el = card.select_one(".salary, .stipend, .prize")
         deadline_el = card.select_one(".deadline, .date")
         jobs.append(
             Job(
@@ -75,8 +78,8 @@ def parse_unstop_jobs(html: str, query: JobQuery) -> list[Job]:
                 country="India",
                 work_mode=parse_work_mode(text),
                 job_kind=parse_job_kind(job_url + " " + title + " " + text),
-                salary=parse_money(salary_el.get_text(" ") if salary_el else ""),
-                stipend=parse_money(salary_el.get_text(" ") if salary_el else ""),
+                salary=parse_money(salary_text),
+                stipend=parse_money(salary_text),
                 skills=normalize_skills(query.skills),
                 deadline=parse_date(deadline_el.get_text(" ") if deadline_el else ""),
                 description=text,
