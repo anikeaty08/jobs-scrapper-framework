@@ -9,7 +9,6 @@ from bs4 import BeautifulSoup
 from jobhunter.models import Job, JobKind
 from jobhunter.query import JobQuery
 from jobhunter.scrapers.base import BaseScraper
-from jobhunter.utils.http import safe_get
 from jobhunter.utils.normalization import clean_text, normalize_city, normalize_url, parse_date, parse_job_kind, parse_work_mode
 
 
@@ -26,7 +25,7 @@ class LinkedInScraper(BaseScraper):
         return "https://www.linkedin.com/jobs/search?" + urlencode({k: v for k, v in params.items() if v})
 
     def search(self, query: JobQuery) -> list[Job]:
-        response = safe_get(self.session, self.build_url(query))
+        response = self.fetch(self.build_url(query))
         if response is None or response.status_code != 200:
             return []
         return self.limit(parse_linkedin_jobs(response.text, query), query)
@@ -34,7 +33,9 @@ class LinkedInScraper(BaseScraper):
 
 def parse_linkedin_jobs(html: str, query: JobQuery) -> list[Job]:
     soup = BeautifulSoup(html, "html.parser")
-    cards = soup.select(".base-card, .jobs-search__results-list li")
+    cards = soup.select(".base-card")
+    if not cards:
+        cards = soup.select(".jobs-search__results-list li")
     jobs: list[Job] = []
     for card in cards:
         title_el = card.select_one(".base-search-card__title, h3")

@@ -26,6 +26,10 @@ dist/
 *.log
 *.tmp
 *.temp
+live-validation*.json
+jobs-test*.csv
+jobs-test*.json
+.jobhunter_cache/
 
 # OS and editor files
 .DS_Store

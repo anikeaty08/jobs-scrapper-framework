@@ -9,7 +9,6 @@ from bs4 import BeautifulSoup
 from jobhunter.models import Job, JobKind, SalaryPeriod
 from jobhunter.query import JobQuery
 from jobhunter.scrapers.base import BaseScraper
-from jobhunter.utils.http import safe_get
 from jobhunter.utils.normalization import (
     clean_text,
     normalize_city,
@@ -34,7 +33,7 @@ class InternshalaScraper(BaseScraper):
         return f"https://internshala.com/{kind}/{term}/"
 
     def search(self, query: JobQuery) -> list[Job]:
-        response = safe_get(self.session, self.build_url(query))
+        response = self.fetch(self.build_url(query))
         if response is None or response.status_code != 200:
             return []
         return self.limit(parse_internshala_jobs(response.text, query), query)
@@ -42,7 +41,7 @@ class InternshalaScraper(BaseScraper):
 
 def parse_internshala_jobs(html: str, query: JobQuery) -> list[Job]:
     soup = BeautifulSoup(html, "html.parser")
-    cards = soup.select(".individual_internship, .internship_meta")
+    cards = soup.select("div[id^='individual_internship_'][internshipid], div.individual_internship[data-href]")
     jobs: list[Job] = []
     for card in cards:
         title_el = card.select_one(".job-title-href, .profile, h3 a, h3")

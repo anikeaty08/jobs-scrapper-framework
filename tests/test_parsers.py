@@ -10,7 +10,7 @@ from jobhunter.scrapers.unstop import parse_unstop_jobs
 class ParserTests(unittest.TestCase):
     def test_internshala_parser(self):
         html = """
-        <div class="individual_internship">
+        <div class="individual_internship" id="individual_internship_1" internshipid="1" data-href="/internship/detail/python-intern">
           <a class="job-title-href" href="/internship/detail/python-intern">Python Intern</a>
           <div class="company-name">Acme Labs</div>
           <span class="location_link">Bangalore</span>
@@ -59,6 +59,10 @@ class ParserTests(unittest.TestCase):
         jobs = parse_unstop_jobs(html, JobQuery(role="backend intern", search_term="backend intern", city="Bengaluru"))
         self.assertEqual(len(jobs), 1)
         self.assertEqual(jobs[0].company, "Acme")
+
+    def test_linkedin_parser_accepts_blocked_empty_page(self):
+        jobs = parse_linkedin_jobs("<html><title>authwall</title></html>", JobQuery(role="software engineer"))
+        self.assertEqual(jobs, [])
 
 
 if __name__ == "__main__":

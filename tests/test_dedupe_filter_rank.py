@@ -30,6 +30,12 @@ class DedupeFilterRankTests(unittest.TestCase):
         self.assertGreater(ranked[0].match_score, 0)
         self.assertTrue(ranked[0].reasons)
 
+    def test_ranker_counts_skill_in_title(self):
+        query = JobQuery(role="python developer", search_term="python developer", skills=["python"])
+        ranked = rank_jobs([Job("Python Developer", "Acme", "linkedin", "https://example.com/1")], query)
+        self.assertTrue(any("skills match" in reason for reason in ranked[0].reasons))
+        self.assertFalse(any("no requested skills" in warning for warning in ranked[0].warnings))
+
 
 if __name__ == "__main__":
     unittest.main()

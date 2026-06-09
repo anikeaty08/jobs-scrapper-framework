@@ -9,7 +9,6 @@ from bs4 import BeautifulSoup
 from jobhunter.models import Job, JobKind
 from jobhunter.query import JobQuery
 from jobhunter.scrapers.base import BaseScraper
-from jobhunter.utils.http import safe_get
 from jobhunter.utils.normalization import (
     clean_text,
     normalize_city,
@@ -39,7 +38,7 @@ class IndeedScraper(BaseScraper):
         return f"https://{host}/jobs?{urlencode({k: v for k, v in params.items() if v})}"
 
     def search(self, query: JobQuery) -> list[Job]:
-        response = safe_get(self.session, self.build_url(query))
+        response = self.fetch(self.build_url(query))
         if response is None or response.status_code != 200:
             return []
         return self.limit(parse_indeed_jobs(response.text, query), query)

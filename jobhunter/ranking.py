@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from jobhunter.models import Job, WorkMode
-from jobhunter.query import JobQuery
+from jobhunter.query import JobProfile, JobQuery
 
 
 def rank_jobs(jobs: list[Job], query: JobQuery) -> list[Job]:
@@ -23,9 +23,11 @@ def rank_jobs(jobs: list[Job], query: JobQuery) -> list[Job]:
             reasons.append("title matches search intent")
 
         skill_hits = sorted(set(skills).intersection(job.skills))
-        if skill_hits:
-            score += min(30, 8 * len(skill_hits))
-            reasons.append("skills match: " + ", ".join(skill_hits[:5]))
+        text_skill_hits = [skill for skill in skills if skill in title or skill in description]
+        combined_skill_hits = sorted(set(skill_hits + text_skill_hits))
+        if combined_skill_hits:
+            score += min(30, 8 * len(combined_skill_hits))
+            reasons.append("skills match: " + ", ".join(combined_skill_hits[:5]))
         elif skills:
             warnings.append("no requested skills found")
 
@@ -50,6 +52,11 @@ def rank_jobs(jobs: list[Job], query: JobQuery) -> list[Job]:
         if job.date_posted:
             score += 5
             reasons.append("has posting date")
+        profile_score, profile_reasons, profile_warnings = score_for_profile(job, query.profile)
+        score += profile_score
+        reasons.extend(profile_reasons)
+        warnings.extend(profile_warnings)
+
         if not job.description:
             warnings.append("description unavailable")
         if "senior" in title and query.fresher:
@@ -63,3 +70,63 @@ def rank_jobs(jobs: list[Job], query: JobQuery) -> list[Job]:
         job.warnings = warnings
 
     return sorted(jobs, key=lambda item: (item.match_score, item.date_posted or ""), reverse=True)
+
+
+def score_for_profile(job: Job, profile: JobProfile | None) -> tuple[float, list[str], list[str]]:
+    if profile is None:
+        return 0.0, [], []
+
+    score = 0.0
+    reasons: list[str] = []
+    warnings: list[str] = []
+    title = job.title.lower()
+    company = job.company.lower()
+
+    title_hits = [wanted for wanted in profile.preferred_titles if wanted.lower() in title]
+    if title_hits:
+        score += min(18, 6 * len(title_hits))
+        reasons.append("profile title preference matched")
+
+    skill_hits = sorted(set(skill.lower() for skill in profile.skills).intersection(job.skills))
+    if skill_hits:
+        score += min(24, 6 * len(skill_hits))
+        reasons.append("profile skills matched: " + ", ".join(skill_hits[:5]))
+
+    if profile.preferred_companies and any(name.lower() in company for name in profile.preferred_companies):
+        score += 10
+        reasons.append("preferred company matched")
+
+    if profile.excluded_companies and any(name.lower() in company for name in profile.excluded_companies):
+        score -= 40
+        warnings.append("excluded company matched")
+
+    if profile.preferred_cities and job.city:
+        if any(city.lower() in job.city.lower() for city in profile.preferred_cities):
+            score += 8
+            reasons.append("profile city preference matched")
+
+    if profile.remote_preferred and job.work_mode == WorkMode.REMOTE:
+        score += 8
+        reasons.append("profile remote preference matched")
+
+    if profile.fresher and (job.experience_min is None or job.experience_min <= 1):
+        score += 8
+        reasons.append("profile fresher fit")
+
+    if profile.experience_years is not None:
+        if job.experience_min is not None and job.experience_min > profile.experience_years:
+            score -= 12
+            warnings.append("experience requirement may be high")
+        elif job.experience_max is None or job.experience_max >= profile.experience_years:
+            score += 6
+            reasons.append("experience range fits profile")
+
+    if profile.min_salary is not None and (job.salary.max_amount or 0) >= profile.min_salary:
+        score += 6
+        reasons.append("profile salary target met")
+
+    if profile.min_stipend is not None and (job.stipend.max_amount or 0) >= profile.min_stipend:
+        score += 6
+        reasons.append("profile stipend target met")
+
+    return score, reasons, warnings

@@ -43,6 +43,12 @@ for job in result.top(10):
 jobhunter search "backend engineer intern" --country India --city Bengaluru --skill python --skill fastapi --remote --fresher --csv jobs.csv
 ```
 
+Validate live source fetch + parser behavior with request-based fetching:
+
+```powershell
+python -m jobhunter.cli validate "python intern" --country India --city Bengaluru --source internshala --source unstop --source indeed --source linkedin --limit 5 --cache --report live-validation.json
+```
+
 ## Framework Layers
 
 - Source layer: one scraper module per source.
@@ -51,6 +57,7 @@ jobhunter search "backend engineer intern" --country India --city Bengaluru --sk
 - Filter layer: city, country, skills, remote, fresher, salary, stipend, date, exclusions.
 - Uniqueness layer: canonical URL, source IDs, and normalized fallback identity.
 - Ranking layer: match score, reasons, warnings.
+- Cache layer: saves fetched HTML for repeatable parser debugging.
 - Export layer: DataFrame, CSV, JSON.
 
 ## Built-In Sources
@@ -82,6 +89,8 @@ jobhunter/
     normalization.py
     dedupe.py
     http.py
+    cache.py
+    fetchers.py
   exporters/
     csv.py
     json.py
@@ -120,3 +129,5 @@ python -m unittest discover -s tests
 ```
 
 Live websites change often and may block automated requests. The framework is structured so parser fixes are isolated to individual source modules.
+
+Current v0.2 tests cover normalization, parser fixtures, dedupe, city/remote/skill/exclude/salary/stipend/fresher/date filters, async search, cache round trips, and profile-aware ranking.

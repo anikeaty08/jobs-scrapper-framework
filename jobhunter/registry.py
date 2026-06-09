@@ -15,12 +15,12 @@ class ScraperRegistry:
             raise ValueError("scraper source cannot be empty")
         self._scrapers[scraper_cls.source] = scraper_cls
 
-    def create(self, source: str, *, proxies: list[str] | None = None) -> BaseScraper:
+    def create(self, source: str, **kwargs) -> BaseScraper:
         try:
             scraper_cls = self._scrapers[source]
         except KeyError as exc:
             raise UnknownSourceError(f"unknown source: {source}") from exc
-        return scraper_cls(proxies=proxies)
+        return scraper_cls(**kwargs)
 
     def names(self) -> list[str]:
         return sorted(self._scrapers)

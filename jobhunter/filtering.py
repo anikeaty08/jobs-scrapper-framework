@@ -37,8 +37,11 @@ def filter_jobs(jobs: list[Job], query: JobQuery) -> list[Job]:
             continue
         if query.experience_max is not None and job.experience_min and job.experience_min > query.experience_max:
             continue
-        if query.skills and not set(skill.lower() for skill in query.skills).intersection(job.skills):
-            continue
+        if query.skills:
+            skill_terms = [skill.lower() for skill in query.skills]
+            structured_skills = set(job.skills)
+            if not structured_skills.intersection(skill_terms) and not any(skill in searchable for skill in skill_terms):
+                continue
         if query.salary_min is not None:
             amount = job.salary.max_amount or job.salary.min_amount
             if amount is not None and amount < query.salary_min:
@@ -47,12 +50,14 @@ def filter_jobs(jobs: list[Job], query: JobQuery) -> list[Job]:
             amount = job.stipend.max_amount or job.stipend.min_amount
             if amount is not None and amount < query.stipend_min:
                 continue
-        if query.posted_within_days is not None and job.date_posted:
+        if query.posted_within_days is not None:
+            if not job.date_posted:
+                continue
             try:
                 posted = date.fromisoformat(job.date_posted)
             except ValueError:
-                posted = None
-            if posted and posted < today - timedelta(days=query.posted_within_days):
+                continue
+            if posted < today - timedelta(days=query.posted_within_days):
                 continue
         if query.job_kind:
             wanted = {query.job_kind} if isinstance(query.job_kind, str) else set(query.job_kind)

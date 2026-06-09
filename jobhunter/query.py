@@ -6,6 +6,20 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class JobProfile:
+    skills: list[str] = field(default_factory=list)
+    experience_years: float | None = None
+    preferred_titles: list[str] = field(default_factory=list)
+    preferred_companies: list[str] = field(default_factory=list)
+    excluded_companies: list[str] = field(default_factory=list)
+    preferred_cities: list[str] = field(default_factory=list)
+    min_salary: float | None = None
+    min_stipend: float | None = None
+    remote_preferred: bool = False
+    fresher: bool = False
+
+
+@dataclass
 class JobQuery:
     role: str = ""
     search_term: str = ""
@@ -34,14 +48,20 @@ class JobQuery:
     posted_within_days: int | None = None
     results_wanted: int = 50
     fetch_descriptions: bool = False
+    fetch_backend: str = "requests"
+    cache_enabled: bool = False
+    cache_dir: str = ".jobhunter_cache"
     include_regional: bool = True
     proxies: list[str] = field(default_factory=list)
+    profile: JobProfile | None = None
 
     def __post_init__(self) -> None:
         if self.city and not self.cities:
             self.cities = [self.city]
         if not self.search_term and self.role:
             self.search_term = self.role
+        if isinstance(self.profile, dict):
+            self.profile = JobProfile(**self.profile)
 
     @classmethod
     def from_kwargs(cls, **kwargs) -> "JobQuery":
