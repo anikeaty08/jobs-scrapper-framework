@@ -46,7 +46,7 @@ class IndeedScraper(BaseScraper):
 
 
 def parse_indeed_jobs(html: str, query: JobQuery) -> list[Job]:
-    soup = BeautifulSoup(html, "lxml")
+    soup = BeautifulSoup(html, "html.parser")
     cards = soup.select("[data-jk], .job_seen_beacon, .jobsearch-SerpJobCard")
     jobs: list[Job] = []
     for card in cards:

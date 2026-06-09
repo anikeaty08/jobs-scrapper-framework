@@ -33,7 +33,7 @@ class LinkedInScraper(BaseScraper):
 
 
 def parse_linkedin_jobs(html: str, query: JobQuery) -> list[Job]:
-    soup = BeautifulSoup(html, "lxml")
+    soup = BeautifulSoup(html, "html.parser")
     cards = soup.select(".base-card, .jobs-search__results-list li")
     jobs: list[Job] = []
     for card in cards:

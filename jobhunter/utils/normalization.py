@@ -148,12 +148,13 @@ def parse_money(text: str | None, default_currency: str = "INR") -> Money:
         period = SalaryPeriod.HOUR
 
     numbers = re.findall(r"(\d+(?:,\d+)*(?:\.\d+)?)\s*(lpa|lac|lakh|k)?", lowered)
+    shared_lakh_suffix = any(marker in lowered for marker in ("lpa", "lac", "lakh"))
     amounts: list[float] = []
     for value, suffix in numbers:
         amount = float(value.replace(",", ""))
         if suffix == "k":
             amount *= 1000
-        elif suffix in {"lpa", "lac", "lakh"}:
+        elif suffix in {"lpa", "lac", "lakh"} or shared_lakh_suffix:
             amount *= 100000
             period = SalaryPeriod.YEAR
             currency = "INR"

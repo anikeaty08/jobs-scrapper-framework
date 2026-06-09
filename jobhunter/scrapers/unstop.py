@@ -38,7 +38,7 @@ class UnstopScraper(BaseScraper):
 
 
 def parse_unstop_jobs(html: str, query: JobQuery) -> list[Job]:
-    soup = BeautifulSoup(html, "lxml")
+    soup = BeautifulSoup(html, "html.parser")
     cards = soup.select("a[href*='/jobs/'], a[href*='/internships/'], a[href*='/competitions/'], .single_profile, .opportunity-card")
     jobs: list[Job] = []
     seen_urls: set[str] = set()

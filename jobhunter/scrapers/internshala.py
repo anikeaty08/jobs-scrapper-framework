@@ -41,7 +41,7 @@ class InternshalaScraper(BaseScraper):
 
 
 def parse_internshala_jobs(html: str, query: JobQuery) -> list[Job]:
-    soup = BeautifulSoup(html, "lxml")
+    soup = BeautifulSoup(html, "html.parser")
     cards = soup.select(".individual_internship, .internship_meta")
     jobs: list[Job] = []
     for card in cards:
