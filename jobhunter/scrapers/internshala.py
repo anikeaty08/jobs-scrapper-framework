@@ -49,10 +49,17 @@ class InternshalaScraper(BaseScraper):
         return "intern" in term or "intern" in str(kind).lower()
 
     def build_url(self, query: JobQuery, page: int = 1) -> str:
-        """Build paginated URL. City slug is NOT used — Internshala ignores it server-side."""
+        """Build paginated URL with optional city slug.
+        Internshala supports /internships/python-in-bengaluru/ and /jobs/python-in-bengaluru/
+        """
         kind = "internships" if self._is_internship_search(query) else "jobs"
         term_slug = _slug(query.normalized_term)
-        base = f"{BASE_URL}/{kind}/{term_slug}/"
+        city = query.city or ""
+        if city:
+            city_slug = _slug(city)
+            base = f"{BASE_URL}/{kind}/{term_slug}-in-{city_slug}/"
+        else:
+            base = f"{BASE_URL}/{kind}/{term_slug}/"
         return base if page == 1 else f"{base}?page={page}"
 
     def search(self, query: JobQuery) -> list[Job]:
