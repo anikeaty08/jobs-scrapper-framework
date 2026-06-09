@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jobhunter"
+name = "hirehunt"
 version = "0.2.0"
-description = "A programmable job search framework with global sources, regional opportunity support, filters, ranking, and deduplication."
+description = "A programmable job-scraping framework for India & global markets. Aggregates Naukri, Shine, Internshala, LinkedIn, Indeed, and FAANG companies into a unified dataset."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

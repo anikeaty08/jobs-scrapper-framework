@@ -1,4 +1,4 @@
-# 🎯 JobHunter
+# 🎯 HireHunt
 
 **A programmable job-scraping framework for India & global markets.**  
 Aggregate jobs from **12 sources** — Naukri, Internshala, Shine, LinkedIn, Indeed, and FAANG companies — into a unified, filterable, ranked dataset.
@@ -27,10 +27,13 @@ Aggregate jobs from **12 sources** — Naukri, Internshala, Shine, LinkedIn, Ind
 ## 📦 Installation
 
 ```bash
-git clone https://github.com/your-username/jobhunter.git
-cd jobhunter
-pip install -e .
+pip install hirehunt
 ```
+
+> **Note:** The PyPI package is `hirehunt`. The import name is `jobhunter`.
+> ```python
+> import jobhunter   # ← this is correct after pip install hirehunt
+> ```
 
 **Requirements:** Python 3.10+
 
