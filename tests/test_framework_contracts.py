@@ -4,7 +4,7 @@ from pathlib import Path
 
 from hirehunt import JOB_SCHEMA_VERSION
 from hirehunt.engine import SearchEngine
-from hirehunt.models import CompletionStatus, Job
+from hirehunt.models import CompletionStatus, Job, SourceDefinition
 from hirehunt.models import ScrapeResult, SourceStats
 from hirehunt.policies import DedupeOutcome, FilterOutcome, RequestPolicy, SearchPolicies
 from hirehunt.query import JobQuery
@@ -17,6 +17,13 @@ from hirehunt.scrapers.naukri import _parse_naukri_job
 from hirehunt.scrapers.shine import _parse_shine_item
 from hirehunt.scrapers.unstop import parse_unstop_item
 from hirehunt.utils.http import safe_get
+from hirehunt.validation import (
+    HealthThresholds,
+    SourceBenchmark,
+    SourceValidation,
+    evaluate_benchmark_health,
+    evaluate_validation_health,
+)
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -24,6 +31,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 class TwoJobScraper(BaseScraper):
     source = "two"
+    source_family = "fixture"
 
     def search(self, query):
         return [
@@ -87,6 +95,36 @@ class FrameworkContractTests(unittest.TestCase):
             self.assertTrue(capability.description)
             self.assertIsInstance(capability.supported_filters, frozenset)
 
+    def test_all_builtin_sources_declare_source_definitions(self):
+        definitions = default_registry().definitions()
+        self.assertEqual(set(definitions), set(default_registry().names()))
+        for definition in definitions.values():
+            self.assertIsInstance(definition, SourceDefinition)
+            self.assertTrue(definition.family)
+            self.assertTrue(definition.adapter)
+            self.assertTrue(definition.capabilities.description)
+
+    def test_registry_expands_source_families(self):
+        registry = default_registry()
+        self.assertIn("linkedin", registry.expand_sources(["aggregator"]))
+        self.assertIn("indeed", registry.expand_sources(["aggregator"]))
+        self.assertIn("amazon", registry.expand_sources(["company"]))
+
+    def test_registry_can_register_configured_sources(self):
+        registry = ScraperRegistry()
+        registry.register_configured_source(
+            TwoJobScraper,
+            source="tenant_one",
+            family="workday",
+            aliases=("tenant-1",),
+            config={"tenant": "tenant-one"},
+        )
+
+        definition = registry.definition("tenant-1")
+        self.assertEqual(definition.family, "workday")
+        self.assertEqual(definition.config["tenant"], "tenant-one")
+        self.assertEqual(registry.family_sources("workday"), ["tenant_one"])
+
     def test_result_diagnostics_and_partial_failure(self):
         registry = ScraperRegistry()
         registry.register(TwoJobScraper)
@@ -134,6 +172,13 @@ class FrameworkContractTests(unittest.TestCase):
         job = Job("Developer", "Acme", "mock", "https://example.com")
         self.assertEqual(job.to_dict()["schema_version"], JOB_SCHEMA_VERSION)
 
+    def test_job_string_includes_url(self):
+        job = Job("Developer", "Acme", "mock", "https://example.com/job", city="Bengaluru")
+        self.assertEqual(
+            str(job),
+            "Developer @ Acme | Bengaluru | mock | https://example.com/job",
+        )
+
     def test_existing_positional_model_construction_remains_valid(self):
         stats = SourceStats(2, 1, 0, 0)
         result = ScrapeResult([], {}, {"mock": stats}, [])
@@ -151,6 +196,17 @@ class FrameworkContractTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(session.calls, 2)
         self.assertEqual(len(sleeps), 1)
+
+    def test_query_company_and_family_select_sources(self):
+        registry = ScraperRegistry()
+        registry.register(TwoJobScraper)
+
+        result = SearchEngine(registry=registry).search(
+            JobQuery(search_term="python", company="Acme", source_family="fixture")
+        )
+
+        self.assertEqual([job.company for job in result.jobs], ["Acme"])
+        self.assertEqual(result.selected_sources, ["two"])
 
     def test_fixture_parsers_follow_job_contract(self):
         query = JobQuery(search_term="backend developer", city="Bengaluru", country="India")
@@ -175,6 +231,24 @@ class FrameworkContractTests(unittest.TestCase):
             self.assertTrue(job.title)
             self.assertTrue(job.source)
             self.assertTrue(job.job_url)
+
+    def test_validation_health_flags_empty_sources(self):
+        results = [SourceValidation(source="linkedin", status_code=200, fetched=True, parsed_count=0)]
+        issues = evaluate_validation_health(results, HealthThresholds(min_parsed=1, max_failures=0))
+        self.assertTrue(any(issue.code == "parsed_below_minimum" for issue in issues))
+
+    def test_benchmark_health_flags_unexpected_completion(self):
+        results = [
+            SourceBenchmark(
+                source="linkedin",
+                parsed_count=0,
+                completion=CompletionStatus.FAILED,
+                completion_reason="blocked",
+                error="blocked",
+            )
+        ]
+        issues = evaluate_benchmark_health(results, HealthThresholds(min_parsed=1))
+        self.assertTrue(any(issue.code == "unexpected_completion" for issue in issues))
 
 
 if __name__ == "__main__":

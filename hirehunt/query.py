@@ -25,6 +25,8 @@ class JobProfile:
 class JobQuery:
     role: str = ""
     search_term: str = ""
+    company: str = ""
+    companies: list[str] = field(default_factory=list)
     location: str = ""
     city: str = ""
     state: str = ""
@@ -34,6 +36,7 @@ class JobQuery:
     skills: list[str] = field(default_factory=list)
     exclude: list[str] = field(default_factory=list)
     sources: list[str] | str = "auto"
+    source_family: str = ""
 
     job_type: list[str] | str | None = None
     job_kind: list[str] | str | None = None
@@ -61,12 +64,14 @@ class JobQuery:
     profile: JobProfile | None = None
 
     def __post_init__(self) -> None:
-        # Normalize city at entry — blr→Bengaluru, calcutta→Kolkata, mum→Mumbai etc.
         if self.city:
             from hirehunt.utils.normalization import normalize_city
+
             self.city = normalize_city(self.city)
         if self.city and not self.cities:
             self.cities = [self.city]
+        if self.company and not self.companies:
+            self.companies = [self.company]
         if not self.search_term and self.role:
             self.search_term = self.role
         if isinstance(self.profile, dict):
@@ -82,11 +87,17 @@ class JobQuery:
             kwargs["search_term"] = kwargs["role"]
         if "city" in kwargs and kwargs["city"] and "cities" not in kwargs:
             kwargs["cities"] = [kwargs["city"]]
+        if "company" in kwargs and kwargs["company"] and "companies" not in kwargs:
+            kwargs["companies"] = [kwargs["company"]]
         return cls(**kwargs)
 
     @property
     def normalized_term(self) -> str:
         return (self.search_term or self.role).strip()
+
+    @property
+    def company_terms(self) -> list[str]:
+        return [item.strip() for item in self.companies if item and item.strip()]
 
     @property
     def source_list(self) -> list[str]:

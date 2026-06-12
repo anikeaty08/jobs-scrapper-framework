@@ -48,6 +48,9 @@ INDEED_DOMAINS = {
 
 class IndeedScraper(BaseScraper):
     source = "indeed"
+    source_family = "aggregator"
+    source_adapter = "indeed_graphql"
+    source_tags = ("global", "jobs", "internships")
     capabilities = SourceCapabilities(
         countries=("global",),
         job_kinds=(JobKind.JOB, JobKind.INTERNSHIP),
@@ -103,7 +106,8 @@ def indeed_base_url(query: JobQuery) -> str:
 
 
 def build_indeed_query(query: JobQuery, cursor: str | None = None) -> str:
-    what = _graphql_arg("what", query.normalized_term)
+    keywords = " ".join([*query.company_terms, query.normalized_term]).strip()
+    what = _graphql_arg("what", keywords)
     location = ""
     where = query.city or query.location or query.country
     if where:

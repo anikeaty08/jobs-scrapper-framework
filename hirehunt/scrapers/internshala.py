@@ -64,6 +64,9 @@ _CITY_SLUG_ALIAS: dict[str, str] = {
 
 class InternshalaScraper(BaseScraper):
     source = "internshala"
+    source_family = "regional"
+    source_adapter = "internshala_html"
+    source_tags = ("india", "jobs", "internships")
     default_country = "India"
     capabilities = SourceCapabilities(
         countries=("India",),

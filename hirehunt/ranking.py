@@ -31,9 +31,16 @@ def rank_jobs(jobs: list[Job], query: JobQuery) -> list[Job]:
         elif skills:
             warnings.append("no requested skills found")
 
+        if query.company_terms and any(term.lower() in job.company.lower() for term in query.company_terms):
+            score += 12
+            reasons.append("company matches")
+
         if query.remote is True and job.work_mode == WorkMode.REMOTE:
             score += 10
             reasons.append("remote role")
+        if query.work_mode and str(job.work_mode) == str(query.work_mode).lower():
+            score += 8
+            reasons.append("work mode matches")
         if query.city and job.city and query.city.lower() in job.city.lower():
             score += 8
             reasons.append("city matches")

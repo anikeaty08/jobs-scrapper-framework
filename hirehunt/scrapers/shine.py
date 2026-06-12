@@ -67,6 +67,9 @@ def _make_search_url(query: JobQuery, page: int = 1) -> str:
 
 class ShineScraper(BaseScraper):
     source = "shine"
+    source_family = "regional"
+    source_adapter = "shine_ssr"
+    source_tags = ("india", "jobs", "internships")
     default_country = "India"
     capabilities = SourceCapabilities(
         countries=("India",),

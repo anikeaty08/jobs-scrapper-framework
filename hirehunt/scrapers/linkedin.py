@@ -14,6 +14,10 @@ from hirehunt.utils.normalization import clean_text, normalize_city, normalize_u
 
 class LinkedInScraper(BaseScraper):
     source = "linkedin"
+    source_family = "aggregator"
+    source_adapter = "linkedin_guest"
+    source_aliases = ("linkedin_guest",)
+    source_tags = ("global", "jobs", "internships")
     capabilities = SourceCapabilities(
         countries=("global",),
         job_kinds=(JobKind.JOB, JobKind.INTERNSHIP),
@@ -24,8 +28,9 @@ class LinkedInScraper(BaseScraper):
     )
 
     def build_url(self, query: JobQuery, start: int = 0) -> str:
+        keywords = " ".join([*query.company_terms, query.normalized_term]).strip()
         params = {
-            "keywords": query.normalized_term,
+            "keywords": keywords,
             "location": query.city or query.location or query.country,
             "start": start,
         }

@@ -38,6 +38,9 @@ _UA = (
 class UnstopScraper(BaseScraper):
     """Unstop — returns hackathons, competitions, and coding challenges via API."""
     source = "unstop"
+    source_family = "opportunity"
+    source_adapter = "unstop_api"
+    source_tags = ("india", "hackathons", "competitions", "fellowships")
     default_country = "India"
     capabilities = SourceCapabilities(
         countries=("India",),

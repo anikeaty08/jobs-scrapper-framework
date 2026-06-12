@@ -1,7 +1,12 @@
 import asyncio
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from unittest.mock import patch
 
+import hirehunt
+from hirehunt.cli import main
 from hirehunt.engine import SearchEngine
 from hirehunt.models import Job, WorkMode
 from hirehunt.query import JobProfile, JobQuery
@@ -32,6 +37,18 @@ class MockScraper(BaseScraper):
 
 
 class V02FeatureTests(unittest.TestCase):
+    def test_public_version_is_exposed(self):
+        self.assertTrue(hirehunt.__version__)
+
+    def test_cli_validate_strict_exits_on_health_failure(self):
+        buffer = io.StringIO()
+        with patch("hirehunt.cli.validate_sources") as validate_sources:
+            validate_sources.return_value = []
+            with redirect_stdout(buffer):
+                code = main(["validate", "python developer", "--strict"])
+        self.assertEqual(code, 1)
+        self.assertIn("Health issues:", buffer.getvalue())
+
     def test_auto_sources_only_include_unstop_for_opportunity_searches(self):
         registry = default_registry()
         job_sources = registry.auto_sources("India", search_term="software developer")

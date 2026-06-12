@@ -38,12 +38,7 @@ class SearchEngine:
         self.policies = policies or SearchPolicies()
 
     def search(self, query: JobQuery) -> ScrapeResult:
-        sources = query.source_list or self.registry.auto_sources(
-            query.country,
-            query.include_regional,
-            query.normalized_term,
-            query.job_kind,
-        )
+        sources = self._select_sources(query)
         result = ScrapeResult(
             stats={source: SourceStats() for source in sources},
             warnings=_city_warnings(query),
@@ -80,12 +75,7 @@ class SearchEngine:
         return self._finalize(result, all_jobs, sources, query)
 
     async def search_async(self, query: JobQuery) -> ScrapeResult:
-        sources = query.source_list or self.registry.auto_sources(
-            query.country,
-            query.include_regional,
-            query.normalized_term,
-            query.job_kind,
-        )
+        sources = self._select_sources(query)
         result = ScrapeResult(
             stats={source: SourceStats() for source in sources},
             warnings=_city_warnings(query),
@@ -166,6 +156,18 @@ class SearchEngine:
             cache_dir=query.cache_dir,
             request_policy=query.request_policy,
             cache_backend=query.cache_backend,
+        )
+
+    def _select_sources(self, query: JobQuery) -> list[str]:
+        if query.source_list:
+            return self.registry.expand_sources(query.source_list)
+        if query.source_family:
+            return self.registry.family_sources(query.source_family)
+        return self.registry.auto_sources(
+            query.country,
+            query.include_regional,
+            query.normalized_term,
+            query.job_kind,
         )
 
 

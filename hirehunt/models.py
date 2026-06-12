@@ -56,6 +56,17 @@ class SourceCapabilities:
 
 
 @dataclass(frozen=True)
+class SourceDefinition:
+    name: str
+    family: str = "custom"
+    adapter: str = ""
+    aliases: tuple[str, ...] = ()
+    tags: tuple[str, ...] = ()
+    config: dict[str, Any] = field(default_factory=dict)
+    capabilities: SourceCapabilities = field(default_factory=SourceCapabilities)
+
+
+@dataclass(frozen=True)
 class Money:
     min_amount: float | None = None
     max_amount: float | None = None
@@ -125,7 +136,7 @@ class Job:
 
     def __str__(self) -> str:
         place = self.city or self.location or self.country or "unknown location"
-        return f"{self.title} @ {self.company} | {place} | {self.source}"
+        return f"{self.title} @ {self.company} | {place} | {self.source} | {self.job_url}"
 
 
 @dataclass

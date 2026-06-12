@@ -95,6 +95,14 @@ class FilterMatrixTests(unittest.TestCase):
         jobs = filter_jobs(sample_jobs(), JobQuery(role="intern", remote=True))
         self.assertEqual([job.company for job in jobs], ["Acme"])
 
+    def test_company_filter(self):
+        jobs = filter_jobs(sample_jobs(), JobQuery(role="intern", company="Acme"))
+        self.assertEqual([job.company for job in jobs], ["Acme"])
+
+    def test_work_mode_filter(self):
+        jobs = filter_jobs(sample_jobs(), JobQuery(role="intern", work_mode="hybrid"))
+        self.assertEqual([job.company for job in jobs], ["SalesCo"])
+
     def test_skill_filter(self):
         jobs = filter_jobs(sample_jobs(), JobQuery(role="engineer", skills=["java"]))
         self.assertEqual([job.company for job in jobs], ["Beta"])

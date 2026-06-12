@@ -57,6 +57,9 @@ _RESULTS_PER_PAGE = 20
 
 class NaukriScraper(BaseScraper):
     source = "naukri"
+    source_family = "regional"
+    source_adapter = "naukri_rest"
+    source_tags = ("india", "jobs", "internships")
     default_country = "India"
     capabilities = SourceCapabilities(
         countries=("India",),

@@ -1,0 +1,56 @@
+name: Source Health
+
+on:
+  schedule:
+    - cron: "0 2 * * 1"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        family: ["aggregator", "regional", "opportunity", "company"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run live validation
+        run: >
+          hirehunt validate "software engineer"
+          --country India
+          --source-family ${{ matrix.family }}
+          --limit 5
+          --strict
+          --min-parsed 1
+          --max-failures 0
+          --report source-health-${{ matrix.family }}.json
+
+      - name: Run benchmark
+        run: >
+          hirehunt benchmark "software engineer"
+          --country India
+          --source-family ${{ matrix.family }}
+          --limit 5
+          --strict
+          --min-parsed 1
+          --report source-benchmark-${{ matrix.family }}.json
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-health-${{ matrix.family }}
+          path: |
+            source-health-${{ matrix.family }}.json
+            source-benchmark-${{ matrix.family }}.json

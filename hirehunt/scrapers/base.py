@@ -13,6 +13,11 @@ from hirehunt.utils.fetchers import CachedFetcher, FetchResponse
 
 class BaseScraper(ABC):
     source: str = ""
+    source_family: str = "custom"
+    source_adapter: str = ""
+    source_aliases: tuple[str, ...] = ()
+    source_tags: tuple[str, ...] = ()
+    source_config: dict[str, object] = {}
     default_country: str = ""
     capabilities = SourceCapabilities()
 

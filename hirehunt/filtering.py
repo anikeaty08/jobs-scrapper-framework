@@ -16,6 +16,13 @@ def _contains_any(value: str, needles: list[str]) -> bool:
     return any(needle.lower() in lowered for needle in needles if needle)
 
 
+def _company_matches(job: Job, companies: list[str]) -> bool:
+    if not companies:
+        return True
+    company = job.company.lower()
+    return any(term.lower() in company for term in companies if term)
+
+
 def _matches_city(job: Job, city: str) -> bool:
     wanted = normalize_city(city).lower()
     primary = normalize_city(job.city).lower()
@@ -43,6 +50,9 @@ def _filter_reason(job: Job, query: JobQuery, today: date) -> str | None:
     if excludes and any(excluded in searchable for excluded in excludes):
         return "excluded_term"
 
+    if query.company_terms and job.company and not _company_matches(job, query.company_terms):
+        return "company_mismatch"
+
     if query.city and (job.city or job.location) and not _matches_city(job, query.city):
         return "city_mismatch"
 
@@ -60,6 +70,8 @@ def _filter_reason(job: Job, query: JobQuery, today: date) -> str | None:
     if query.remote is True and job.work_mode != WorkMode.REMOTE:
         return "work_mode_mismatch"
     if query.remote is False and job.work_mode == WorkMode.REMOTE:
+        return "work_mode_mismatch"
+    if query.work_mode and str(job.work_mode) != str(query.work_mode).lower():
         return "work_mode_mismatch"
 
     if query.fresher is True and job.experience_min and job.experience_min > 1:

@@ -5,12 +5,12 @@
 HireHunt provides:
 
 - A stable normalized job schema.
-- Source registration and machine-readable capabilities.
+- Source-family registration with machine-readable capabilities and definitions.
 - Synchronous and asynchronous orchestration.
 - Configurable filtering, ranking, deduplication, retry, and caching policies.
 - Per-source completion and filtering diagnostics.
 - Graceful partial results when one source fails.
-- Fixture-based parser contract tests and optional live validation.
+- Fixture-based parser contract tests, optional live validation, and benchmark reporting.
 
 ---
 
@@ -73,11 +73,23 @@ for job in result.jobs:
 # India job search
 hirehunt search "data scientist" --city Mumbai --source naukri --source shine
 
+# Company-aware search
+hirehunt search "software engineer" --company DRDO --source linkedin --country India
+
 # Hackathons & competitions
 hirehunt search "hackathon" --source unstop
 
 # FAANG company jobs
 hirehunt search "software engineer" --source google_careers --source amazon
+
+# Expand a whole source family
+hirehunt search "backend developer" --source-family aggregator --country India
+
+# Benchmark a family
+hirehunt benchmark "python developer" --source-family regional --country India --limit 10
+
+# Fail on health regressions
+hirehunt validate "software engineer" --source-family aggregator --country India --strict --min-parsed 1
 
 # Export to CSV
 hirehunt search "backend developer" --source naukri --source linkedin --csv jobs.csv
@@ -120,6 +132,8 @@ from hirehunt import scrape_jobs
 result = scrape_jobs(
     search_term="python developer",   # What to search
     sources=["naukri", "shine"],      # Which sources (list or "auto")
+    source_family="",                 # Optional family expansion, e.g. "aggregator"
+    company="Acme",                   # Optional company intent
     city="Bengaluru",                 # City filter (optional)
     location="India",                 # Broader location (optional)
     country="India",                  # Country (optional)
@@ -127,6 +141,7 @@ result = scrape_jobs(
     dedupe_mode="strict",             # "strict", "heuristic", or "none"
     job_kind="job",                   # "job", "internship", "hackathon"
     remote=None,                      # True = remote only
+    work_mode=None,                   # "remote", "hybrid", "onsite", "unknown"
     salary_min=500000,                # Min salary in INR (optional)
     posted_within_days=30,            # Only jobs from last N days
     skills=["python", "django"],      # Skill filter (optional)
@@ -242,6 +257,40 @@ class MyScraper(BaseScraper):
 
     def search(self, query):
         ...
+```
+
+### Source Definitions
+
+The registry now exposes source-family metadata for config-driven expansion:
+
+```python
+from hirehunt.registry import default_registry
+
+registry = default_registry()
+print(registry.families())                  # ['aggregator', 'company', 'opportunity', 'regional']
+print(registry.family_sources("regional"))  # ['internshala', 'naukri', 'shine']
+print(registry.definition("linkedin"))      # SourceDefinition(...)
+```
+
+Families are reusable framework groupings, not one-off scraper classes. New
+adapters such as `workday`, `greenhouse`, or `institutional` can slot into the
+same contract without changing `SearchEngine`.
+
+Config-driven expansion uses `register_configured_source()` so one adapter can
+back many portals:
+
+```python
+from hirehunt.registry import ScraperRegistry
+from hirehunt.scrapers.base import BaseScraper
+
+registry = ScraperRegistry()
+registry.register_configured_source(
+    MyWorkdayScraper,
+    source="acme_workday",
+    family="workday",
+    aliases=("acme",),
+    config={"tenant": "acme", "site": "Careers"},
+)
 ```
 
 ### Pluggable Policies
@@ -470,11 +519,19 @@ automatically add Unstop.
 pip install -e .
 python -m unittest discover -s tests -v
 hirehunt validate "software developer" --city Bengaluru --country India
+hirehunt benchmark "software developer" --source-family aggregator --country India --limit 5
 ```
 
 Parser contracts use sanitized fixtures under `tests/fixtures`. Live validation
 is separate because remote sites can block, rate-limit, or change independently
 of deterministic unit tests.
+
+CI runs the deterministic suite across Python 3.10-3.13 in
+`.github/workflows/ci.yml`. Scheduled source monitoring and parser-drift alerts
+run through `.github/workflows/source-health.yml`, which executes `validate` and
+`benchmark` for each source family and uploads the resulting JSON reports.
+`.github/workflows/publish.yml` gates release publication on tests, successful
+builds, and a wheel-install smoke run.
 
 ## Compatibility
 

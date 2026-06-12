@@ -60,6 +60,9 @@ _COMPANY_KEYWORD_OVERRIDE = {
 
 class _CompanyLinkedInScraper(LinkedInScraper):
     """LinkedIn scraper pinned to a specific company via f_C filter."""
+    source_family = "company"
+    source_adapter = "linkedin_company"
+    source_tags = ("global", "company")
     _company_name: str = ""
     _company_id:   str = ""
     capabilities = SourceCapabilities(
@@ -156,6 +159,9 @@ class AmazonJobsScraper(BaseScraper):
                     "job_category", "is_intern", "team": {dict}, ... } ] }
     """
     source = "amazon"
+    source_family = "company"
+    source_adapter = "amazon_jobs_api"
+    source_tags = ("global", "company", "jobs", "internships")
     default_country = ""
     capabilities = SourceCapabilities(
         countries=("global",),
