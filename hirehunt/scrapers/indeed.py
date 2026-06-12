@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import os
 
-from hirehunt.models import Job, JobKind, Money, SalaryPeriod, WorkMode
+from hirehunt.models import Job, JobKind, Money, SalaryPeriod, SourceCapabilities, WorkMode
 from hirehunt.query import JobQuery
 from hirehunt.scrapers.base import BaseScraper
 from hirehunt.utils.normalization import clean_text, normalize_city, parse_experience, parse_job_kind
@@ -48,6 +48,14 @@ INDEED_DOMAINS = {
 
 class IndeedScraper(BaseScraper):
     source = "indeed"
+    capabilities = SourceCapabilities(
+        countries=("global",),
+        job_kinds=(JobKind.JOB, JobKind.INTERNSHIP),
+        supported_filters=frozenset({"country", "city", "job_type", "remote", "posted_within_days"}),
+        pagination=True,
+        exhaustive_search=True,
+        description="Indeed GraphQL job search",
+    )
     jobs_per_page = 100
     last_status_code = 0
     last_backend = ""
@@ -58,7 +66,7 @@ class IndeedScraper(BaseScraper):
     def search(self, query: JobQuery) -> list[Job]:
         jobs: list[Job] = []
         cursor = None
-        while len(jobs) < query.results_wanted:
+        while self.wants_more(jobs, query):
             response = self.post_json(
                 INDEED_GRAPHQL_URL,
                 headers=build_indeed_headers(query),

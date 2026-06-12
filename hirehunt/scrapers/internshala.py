@@ -1,8 +1,9 @@
-"""Internshala scraper — URL-slug city filtering + ?page=N pagination + fixed selectors.
+"""Internshala scraper — SEO-route filtering + ?page=N pagination + fixed selectors.
 
 Based on reverse engineering findings:
-  - City filtering works ONLY via URL slug: /internships/python-intern-in-bengaluru/
-  - Pagination works via ?page=N query param (40-50 cards per page)
+  - Job routes require "-jobs", e.g. /jobs/python-developer-jobs-in-bangalore/
+  - Internship routes require "-internship", e.g. /internships/python-internship-in-mumbai/
+  - Pagination works via the ?page=N query parameter
   - /internships_ajax/ JSON endpoint ignores page_no and location_list[] params
   - Skills live in .job_skill elements (not .round_tabs_container)
   - Date lives in .status-success or .posted_by_container
@@ -11,11 +12,10 @@ Based on reverse engineering findings:
 from __future__ import annotations
 
 import re
-from urllib.parse import quote
 
 from bs4 import BeautifulSoup
 
-from hirehunt.models import Job, JobKind, Money, SalaryPeriod
+from hirehunt.models import Job, JobKind, Money, SalaryPeriod, SourceCapabilities
 from hirehunt.query import JobQuery
 from hirehunt.scrapers.base import BaseScraper
 from hirehunt.utils.normalization import (
@@ -29,12 +29,25 @@ from hirehunt.utils.normalization import (
 )
 
 BASE_URL = "https://internshala.com"
-CARDS_PER_PAGE = 40  # conservative estimate
+MAX_PAGES = 100
 
 
 def _slug(text: str) -> str:
     """Convert search text to Internshala URL slug."""
     return re.sub(r"[^a-z0-9]+", "-", text.lower().strip()).strip("-")
+
+
+def _search_slug(term: str, internship: bool) -> str:
+    """Build the search segment used by Internshala's current SEO routes."""
+    if internship:
+        term = re.sub(r"\bintern(?:ship)?s?\b", " ", term, flags=re.I)
+        suffix = "internship"
+    else:
+        term = re.sub(r"\bjobs?\b", " ", term, flags=re.I)
+        suffix = "jobs"
+
+    normalized = _slug(term)
+    return f"{normalized}-{suffix}" if normalized else suffix
 
 
 # Internshala uses different city names in URLs than common usage
@@ -52,31 +65,47 @@ _CITY_SLUG_ALIAS: dict[str, str] = {
 class InternshalaScraper(BaseScraper):
     source = "internshala"
     default_country = "India"
+    capabilities = SourceCapabilities(
+        countries=("India",),
+        job_kinds=(JobKind.JOB, JobKind.INTERNSHIP),
+        supported_filters=frozenset({"city", "job_kind"}),
+        pagination=True,
+        exhaustive_search=True,
+        description="Internshala jobs and internships",
+    )
 
     def _is_internship_search(self, query: JobQuery) -> bool:
         term = query.normalized_term.lower()
         kind = query.job_kind or ""
         if isinstance(kind, (list, tuple)):
             kind = " ".join(kind)
-        return "intern" in term or "intern" in str(kind).lower()
+        return bool(
+            re.search(r"\bintern(?:ship)?s?\b", term)
+            or re.search(r"\bintern(?:ship)?s?\b", str(kind).lower())
+        )
 
     def build_url(self, query: JobQuery, page: int = 1) -> str:
         """Build paginated URL with city slug using centralized per-scraper city map."""
         from hirehunt.utils.normalization import city_for_scraper
-        kind = "internships" if self._is_internship_search(query) else "jobs"
-        term_slug = _slug(query.normalized_term)
+
+        internship = self._is_internship_search(query)
+        kind = "internships" if internship else "jobs"
+        search_slug = _search_slug(query.normalized_term, internship)
         if query.city:
             city_slug = city_for_scraper(query.city, "internshala")
-            base = f"{BASE_URL}/{kind}/{term_slug}-in-{city_slug}/"
+            base = f"{BASE_URL}/{kind}/{search_slug}-in-{city_slug}/"
+        elif query.normalized_term:
+            base = f"{BASE_URL}/{kind}/{search_slug}/"
         else:
-            base = f"{BASE_URL}/{kind}/{term_slug}/"
+            base = f"{BASE_URL}/{kind}/"
         return base if page == 1 else f"{base}?page={page}"
 
     def search(self, query: JobQuery) -> list[Job]:
         jobs: list[Job] = []
+        seen: set[str | tuple[str, str, str]] = set()
         page = 1
 
-        while len(jobs) < query.results_wanted:
+        while self.wants_more(jobs, query) and page <= MAX_PAGES:
             url = self.build_url(query, page)
             response = self.fetch(url)
 
@@ -87,12 +116,22 @@ class InternshalaScraper(BaseScraper):
             if not batch:
                 break
 
-            jobs.extend(batch)
+            new_jobs: list[Job] = []
+            for job in batch:
+                identity: str | tuple[str, str, str] = job.job_url or (
+                    job.title.lower(),
+                    job.company.lower(),
+                    job.location.lower(),
+                )
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                new_jobs.append(job)
 
-            # Stop if we got a short page (last page)
-            if len(batch) < CARDS_PER_PAGE // 2:
+            if not new_jobs:
                 break
 
+            jobs.extend(new_jobs)
             page += 1
 
         return self.limit(jobs, query)

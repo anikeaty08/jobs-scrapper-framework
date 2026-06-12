@@ -3,7 +3,7 @@
 Reverse engineering findings:
   - Data is in: __NEXT_DATA__ → props.pageProps.initialState.jsrp.searchresult.data.results
   - 20 results per page, 897 pages (17,927 total for broad searches)
-  - Pagination: ?page=N works perfectly
+  - Pagination: append -N to the search slug, e.g. ...-jobs-in-bangalore-2
   - Field mapping (abbreviated keys):
       jJT    → job title
       jCName → company name
@@ -29,10 +29,11 @@ from urllib.parse import quote
 
 from bs4 import BeautifulSoup
 
-from hirehunt.models import Job, JobKind, Money, SalaryPeriod, WorkMode
+from hirehunt.models import Job, JobKind, Money, SalaryPeriod, SourceCapabilities, WorkMode
 from hirehunt.query import JobQuery
 from hirehunt.scrapers.base import BaseScraper
 from hirehunt.utils.normalization import (
+    city_for_scraper,
     clean_text,
     normalize_city,
     normalize_skills,
@@ -49,7 +50,8 @@ def _make_search_url(query: JobQuery, page: int = 1) -> str:
     term = query.normalized_term.lower().strip()
     term_slug = re.sub(r"[^a-z0-9]+", "-", term).strip("-")
 
-    city = (query.city or query.location or "").strip().lower()
+    requested_city = query.city or query.location or ""
+    city = city_for_scraper(requested_city, "shine") if requested_city else ""
     city_slug = re.sub(r"[^a-z0-9]+", "-", city).strip("-") if city else ""
 
     if city_slug:
@@ -59,20 +61,32 @@ def _make_search_url(query: JobQuery, page: int = 1) -> str:
 
     url = f"{_BASE}{path}"
     if page > 1:
-        url += f"?page={page}"
+        url += f"-{page}"
     return url
 
 
 class ShineScraper(BaseScraper):
     source = "shine"
     default_country = "India"
+    capabilities = SourceCapabilities(
+        countries=("India",),
+        job_kinds=(JobKind.JOB, JobKind.INTERNSHIP),
+        supported_filters=frozenset({"city"}),
+        pagination=True,
+        exhaustive_search=True,
+        description="Shine SSR job search",
+    )
+
+    def build_url(self, query: JobQuery, page: int = 1) -> str:
+        return _make_search_url(query, page)
 
     def search(self, query: JobQuery) -> list[Job]:
         jobs: list[Job] = []
+        seen: set[str | tuple[str, str, str]] = set()
         page = 1
 
-        while len(jobs) < query.results_wanted:
-            url = _make_search_url(query, page)
+        while self.wants_more(jobs, query):
+            url = self.build_url(query, page)
             resp = self.fetch(url)
 
             if resp is None or resp.status_code != 200:
@@ -82,7 +96,22 @@ class ShineScraper(BaseScraper):
             if not batch:
                 break
 
-            jobs.extend(batch)
+            new_jobs: list[Job] = []
+            for job in batch:
+                identity: str | tuple[str, str, str] = job.source_job_id or (
+                    job.title.lower(),
+                    job.company.lower(),
+                    job.location.lower(),
+                )
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                new_jobs.append(job)
+
+            if not new_jobs:
+                break
+
+            jobs.extend(new_jobs)
 
             if page >= total_pages:
                 break

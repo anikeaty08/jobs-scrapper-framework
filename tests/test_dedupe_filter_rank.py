@@ -1,10 +1,10 @@
 import unittest
 
-from jobhunter.filtering import filter_jobs
-from jobhunter.models import Job, WorkMode
-from jobhunter.query import JobQuery
-from jobhunter.ranking import rank_jobs
-from jobhunter.utils.dedupe import deduplicate_jobs
+from hirehunt.filtering import filter_jobs
+from hirehunt.models import Job, WorkMode
+from hirehunt.query import JobQuery
+from hirehunt.ranking import rank_jobs
+from hirehunt.utils.dedupe import deduplicate_jobs
 
 
 class DedupeFilterRankTests(unittest.TestCase):
@@ -14,6 +14,15 @@ class DedupeFilterRankTests(unittest.TestCase):
             Job("Backend Intern", "Acme", "linkedin", "https://example.com/job", city="Bengaluru"),
         ]
         unique, duplicates = deduplicate_jobs(jobs)
+        self.assertEqual(len(unique), 1)
+        self.assertEqual(duplicates, 1)
+
+    def test_heuristic_dedupe_matches_cross_source_identity(self):
+        jobs = [
+            Job("Backend Intern", "Acme", "indeed", "https://indeed.example/1", city="Bengaluru"),
+            Job("Backend Intern", "Acme", "linkedin", "https://linkedin.example/2", city="Bengaluru"),
+        ]
+        unique, duplicates = deduplicate_jobs(jobs, mode="heuristic")
         self.assertEqual(len(unique), 1)
         self.assertEqual(duplicates, 1)
 

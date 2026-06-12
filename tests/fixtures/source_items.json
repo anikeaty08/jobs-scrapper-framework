@@ -1,0 +1,35 @@
+{
+  "naukri": {
+    "post": "Backend Developer",
+    "companyName": "Fixture Naukri",
+    "urlStr": "https://www.naukri.com/job-listings-fixture-301",
+    "city": "Bengaluru",
+    "jobId": "301"
+  },
+  "shine": {
+    "jJT": "Backend Developer",
+    "jCName": "Fixture Shine",
+    "jSlug": "backend-developer/fixture-shine/401",
+    "jLoc": ["Bangalore"],
+    "id": 401
+  },
+  "unstop": {
+    "id": 501,
+    "title": "Fixture Hackathon",
+    "organisation": {"name": "Fixture Unstop"},
+    "public_url": "hackathons/fixture-501",
+    "region": "online",
+    "type": "hackathon"
+  },
+  "indeed": {
+    "key": "fixture-601",
+    "title": "Backend Developer",
+    "location": {
+      "countryCode": "IN",
+      "city": "Bangalore",
+      "formatted": {"long": "Bangalore, Karnataka, IN"}
+    },
+    "employer": {"name": "Fixture Indeed", "dossier": {}},
+    "attributes": []
+  }
+}

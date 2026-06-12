@@ -124,6 +124,25 @@ CITY_ALIASES: dict[str, str] = {
 # Set of all known canonical city names (lowercase) — used for validation
 KNOWN_CITIES: frozenset[str] = frozenset(v.lower() for v in CITY_ALIASES.values())
 
+COUNTRY_ALIASES: dict[str, str] = {
+    "in": "india",
+    "ind": "india",
+    "india": "india",
+    "us": "united states",
+    "usa": "united states",
+    "united states": "united states",
+    "united states of america": "united states",
+    "gb": "united kingdom",
+    "uk": "united kingdom",
+    "united kingdom": "united kingdom",
+    "ca": "canada",
+    "can": "canada",
+    "canada": "canada",
+    "au": "australia",
+    "aus": "australia",
+    "australia": "australia",
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-scraper city name overrides
 # Each site has its own URL convention. These map canonical → what the site wants.
@@ -144,7 +163,7 @@ _SCRAPER_CITY: dict[str, dict[str, str]] = {
     "naukri": {},
     # Shine uses lowercase slug — handled by url builder already
     "shine": {
-        "bengaluru": "bengaluru",   # Shine accepts this slug fine
+        "bengaluru": "bangalore",
     },
     # LinkedIn accepts canonical names — no overrides
     "linkedin": {},
@@ -186,14 +205,22 @@ def normalize_city(city: str | None) -> str:
     return CITY_ALIASES.get(lowered, value.title() if value.islower() else value)
 
 
+def normalize_country(country: str | None) -> str:
+    value = clean_text(country).strip().lower()
+    return COUNTRY_ALIASES.get(value, value)
+
+
 def normalize_url(url: str | None) -> str:
     if not url:
         return ""
     parsed = urlparse(url.strip())
     query = parse_qs(parsed.query)
     kept_query = []
+    # Params to strip: tracking, session, position params that vary per request
+    _STRIP_PARAMS = {"ref", "trk", "xp", "src", "sid", "pos", "jpos", "pagenum",
+                    "pageNum", "from", "altr", "checktab", "qckt"}
     for key in sorted(query):
-        if key.lower().startswith("utm_") or key.lower() in {"ref", "trk"}:
+        if key.lower().startswith("utm_") or key.lower() in _STRIP_PARAMS:
             continue
         for value in query[key]:
             kept_query.append(f"{key}={value}")

@@ -1,7 +1,7 @@
 import unittest
 
-from jobhunter.models import SalaryPeriod, WorkMode
-from jobhunter.utils.normalization import normalize_city, parse_money, parse_work_mode
+from hirehunt.models import SalaryPeriod, WorkMode
+from hirehunt.utils.normalization import normalize_city, parse_money, parse_work_mode
 
 
 class NormalizationTests(unittest.TestCase):

@@ -1,18 +1,14 @@
-"""Post-scrape filtering — all filters are OPTIONAL/SOFT by default.
-
-Rules:
-- Filters only drop a job if the data is *present* AND *mismatches*.
-- If the job is missing a field (city, salary, date etc.), it PASSES through.
-- This prevents false negatives from incomplete scraped data.
-- Only `exclude` (blacklist) and `posted_within_days` are strict.
-"""
+"""Post-scrape filtering."""
 
 from __future__ import annotations
 
 from datetime import date, timedelta
+import re
 
 from hirehunt.models import Job, JobKind, WorkMode
+from hirehunt.policies import FilterOutcome
 from hirehunt.query import JobQuery
+from hirehunt.utils.normalization import CITY_ALIASES, normalize_city, normalize_country
 
 
 def _contains_any(value: str, needles: list[str]) -> bool:
@@ -20,104 +16,117 @@ def _contains_any(value: str, needles: list[str]) -> bool:
     return any(needle.lower() in lowered for needle in needles if needle)
 
 
-def filter_jobs(jobs: list[Job], query: JobQuery) -> list[Job]:
-    filtered: list[Job] = []
+def _matches_city(job: Job, city: str) -> bool:
+    wanted = normalize_city(city).lower()
+    primary = normalize_city(job.city).lower()
+    if primary and (wanted in primary or primary in wanted):
+        return True
+
+    location = " ".join([job.city, job.location]).lower()
+    aliases = {
+        alias
+        for alias, canonical in CITY_ALIASES.items()
+        if canonical.lower() == wanted
+    }
+    aliases.update({wanted, city.lower()})
+    return any(
+        re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", location)
+        for alias in aliases
+        if alias
+    )
+
+
+def _filter_reason(job: Job, query: JobQuery, today: date) -> str | None:
     excludes = [item.lower() for item in query.exclude]
+    searchable = " ".join([job.title, job.company, job.description, " ".join(job.skills)]).lower()
+
+    if excludes and any(excluded in searchable for excluded in excludes):
+        return "excluded_term"
+
+    if query.city and (job.city or job.location) and not _matches_city(job, query.city):
+        return "city_mismatch"
+
+    if query.cities and (job.city or job.location):
+        if not any(_matches_city(job, city) for city in query.cities):
+            return "city_mismatch"
+
+    if (
+        query.country
+        and job.country
+        and normalize_country(query.country) != normalize_country(job.country)
+    ):
+        return "country_mismatch"
+
+    if query.remote is True and job.work_mode != WorkMode.REMOTE:
+        return "work_mode_mismatch"
+    if query.remote is False and job.work_mode == WorkMode.REMOTE:
+        return "work_mode_mismatch"
+
+    if query.fresher is True and job.experience_min and job.experience_min > 1:
+        return "experience_mismatch"
+    if query.experience_max is not None and job.experience_min and job.experience_min > query.experience_max:
+        return "experience_mismatch"
+
+    if query.skills:
+        skill_terms = [skill.lower() for skill in query.skills]
+        structured_skills = set(job.skills)
+        skill_in_text = any(skill in searchable for skill in skill_terms)
+        if structured_skills and not structured_skills.intersection(skill_terms) and not skill_in_text:
+            return "skills_mismatch"
+
+    if query.salary_min is not None:
+        amount = job.salary.max_amount or job.salary.min_amount
+        if amount is not None and amount < query.salary_min:
+            return "salary_below_minimum"
+
+    if query.stipend_min is not None:
+        amount = job.stipend.max_amount or job.stipend.min_amount
+        if amount is not None and amount < query.stipend_min:
+            return "stipend_below_minimum"
+
+    if query.posted_within_days is not None:
+        if not job.date_posted:
+            return "posting_date_missing"
+        try:
+            posted = date.fromisoformat(job.date_posted)
+        except ValueError:
+            return "posting_date_invalid"
+        if posted < today - timedelta(days=query.posted_within_days):
+            return "posting_too_old"
+
+    if query.job_kind:
+        wanted = {query.job_kind} if isinstance(query.job_kind, str) else set(query.job_kind)
+        if str(job.job_kind) not in wanted and job.job_kind not in wanted:
+            return "job_kind_mismatch"
+
+    if query.normalized_term and not _contains_any(searchable, [query.normalized_term]):
+        terms = [part for part in query.normalized_term.split() if len(part) > 2]
+        if terms and not _contains_any(searchable, terms):
+            return "keyword_mismatch"
+
+    return None
+
+
+def filter_jobs_with_diagnostics(jobs: list[Job], query: JobQuery) -> FilterOutcome:
+    filtered: list[Job] = []
+    dropped: dict[str, int] = {}
+    dropped_by_source: dict[str, dict[str, int]] = {}
     today = date.today()
 
     for job in jobs:
-        searchable = " ".join([job.title, job.company, job.description, " ".join(job.skills)]).lower()
-
-        # ── Exclude / blacklist (always strict) ────────────────────────────
-        if excludes and any(excluded in searchable for excluded in excludes):
+        reason = _filter_reason(job, query, today)
+        if reason:
+            dropped[reason] = dropped.get(reason, 0) + 1
+            source_reasons = dropped_by_source.setdefault(job.source, {})
+            source_reasons[reason] = source_reasons.get(reason, 0) + 1
             continue
-
-        # ── City filter (SOFT: skip if job.city is empty/unknown) ──────────
-        # Normalize both sides so Bangalore==Bengaluru, Calcutta==Kolkata etc.
-        if query.city and job.city:
-            from hirehunt.utils.normalization import normalize_city
-            query_canonical = normalize_city(query.city).lower()
-            job_canonical = normalize_city(job.city).lower()
-            if query_canonical not in job_canonical and job_canonical not in query_canonical:
-                continue
-
-        # ── Multi-city filter (SOFT) ────────────────────────────────────────
-        if query.cities and job.city:
-            from hirehunt.utils.normalization import normalize_city
-            job_canonical = normalize_city(job.city).lower()
-            if not any(normalize_city(c).lower() in job_canonical or job_canonical in normalize_city(c).lower()
-                       for c in query.cities):
-                continue
-
-        # ── Country filter (SOFT) ───────────────────────────────────────────
-        if query.country and job.country:
-            if query.country.lower() not in job.country.lower():
-                continue
-
-        # ── Remote filter ───────────────────────────────────────────────────
-        # SOFT: WorkMode.UNKNOWN passes (we don't know if it's remote or not)
-        if query.remote is True and job.work_mode not in {WorkMode.REMOTE, WorkMode.HYBRID, WorkMode.UNKNOWN}:
-            continue
-        if query.remote is False and job.work_mode == WorkMode.REMOTE:
-            continue
-
-        # ── Fresher / experience filter (SOFT) ─────────────────────────────
-        # Only drop if explicitly states experience > threshold
-        if query.fresher is True and job.experience_min and job.experience_min > 1:
-            continue
-        if query.experience_max is not None and job.experience_min and job.experience_min > query.experience_max:
-            continue
-
-        # ── Skills filter (SOFT) ───────────────────────────────────────────
-        # Pass if: no structured skills on job (data missing) OR any skill matches
-        # Only drop if the job HAS skills listed and NONE match
-        if query.skills:
-            skill_terms = [skill.lower() for skill in query.skills]
-            structured_skills = set(job.skills)
-            has_skills_data = bool(structured_skills)
-            skill_in_text = any(skill in searchable for skill in skill_terms)
-
-            if has_skills_data and not structured_skills.intersection(skill_terms) and not skill_in_text:
-                continue
-            # If job has no skills data → let it through (trust the search engine)
-
-        # ── Salary filter (SOFT: only drop if salary data present AND too low)
-        if query.salary_min is not None:
-            amount = job.salary.max_amount or job.salary.min_amount
-            if amount is not None and amount < query.salary_min:
-                continue
-
-        # ── Stipend filter (SOFT: same logic) ──────────────────────────────
-        if query.stipend_min is not None:
-            amount = job.stipend.max_amount or job.stipend.min_amount
-            if amount is not None and amount < query.stipend_min:
-                continue
-
-        # ── Posted-within filter (SOFT: jobs with no date pass through) ────
-        if query.posted_within_days is not None and job.date_posted:
-            try:
-                posted = date.fromisoformat(job.date_posted)
-                if posted < today - timedelta(days=query.posted_within_days):
-                    continue
-            except ValueError:
-                pass  # malformed date → let through
-
-        # ── Job kind filter ─────────────────────────────────────────────────
-        if query.job_kind:
-            wanted = {query.job_kind} if isinstance(query.job_kind, str) else set(query.job_kind)
-            if str(job.job_kind) not in wanted and job.job_kind not in wanted:
-                continue
-
-        # ── Keyword relevance (SOFT: only drop if clearly irrelevant) ───────
-        # Split into individual words; drop only if NONE of the meaningful words appear
-        if query.normalized_term and not _contains_any(searchable, [query.normalized_term]):
-            terms = [part for part in query.normalized_term.split() if len(part) > 2]
-            if terms and not _contains_any(searchable, terms):
-                continue
-
-        # ── Infer job kind from query (cleanup) ────────────────────────────
         if job.job_kind == JobKind.UNKNOWN and "intern" in query.normalized_term.lower():
             job.job_kind = JobKind.INTERNSHIP
 
         filtered.append(job)
-    return filtered
+
+    return FilterOutcome(filtered, dropped, dropped_by_source)
+
+
+def filter_jobs(jobs: list[Job], query: JobQuery) -> list[Job]:
+    return filter_jobs_with_diagnostics(jobs, query).jobs

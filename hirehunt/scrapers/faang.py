@@ -20,7 +20,7 @@ import re
 import time
 from urllib.parse import urlencode
 
-from hirehunt.models import Job, JobKind, Money, SalaryPeriod, WorkMode
+from hirehunt.models import Job, JobKind, Money, SalaryPeriod, SourceCapabilities, WorkMode
 from hirehunt.query import JobQuery
 from hirehunt.scrapers.base import BaseScraper
 from hirehunt.scrapers.linkedin import LinkedInScraper
@@ -62,6 +62,14 @@ class _CompanyLinkedInScraper(LinkedInScraper):
     """LinkedIn scraper pinned to a specific company via f_C filter."""
     _company_name: str = ""
     _company_id:   str = ""
+    capabilities = SourceCapabilities(
+        countries=("global",),
+        job_kinds=(JobKind.JOB, JobKind.INTERNSHIP),
+        supported_filters=frozenset({"country", "city", "remote"}),
+        pagination=False,
+        exhaustive_search=False,
+        description="Company-filtered LinkedIn guest search",
+    )
 
     def build_url(self, query: JobQuery) -> str:  # type: ignore[override]
         """Build LinkedIn guest API URL with company filter or keyword fallback."""
@@ -149,6 +157,14 @@ class AmazonJobsScraper(BaseScraper):
     """
     source = "amazon"
     default_country = ""
+    capabilities = SourceCapabilities(
+        countries=("global",),
+        job_kinds=(JobKind.JOB, JobKind.INTERNSHIP),
+        supported_filters=frozenset({"country", "city", "job_kind"}),
+        pagination=True,
+        exhaustive_search=True,
+        description="Amazon Jobs public API",
+    )
     _ENDPOINT = "https://www.amazon.jobs/en/search.json"
 
     def search(self, query: JobQuery) -> list[Job]:
@@ -158,7 +174,7 @@ class AmazonJobsScraper(BaseScraper):
 
         location = query.city or query.location or query.country or ""
 
-        while len(jobs) < query.results_wanted:
+        while self.wants_more(jobs, query):
             params: dict = {
                 "base_query":   query.normalized_term,
                 "result_limit": page_size,

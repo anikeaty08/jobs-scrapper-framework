@@ -1,4 +1,4 @@
-"""Search engine orchestration with warnings."""
+"""Search engine orchestration with source warnings."""
 
 from __future__ import annotations
 
@@ -6,23 +6,20 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
 import logging
 
-from hirehunt.filtering import filter_jobs
-from hirehunt.models import ScrapeResult, SourceStats
+from hirehunt.models import CompletionStatus, ScrapeResult, SourceStats
+from hirehunt.policies import SearchPolicies
 from hirehunt.query import JobQuery
-from hirehunt.ranking import rank_jobs
 from hirehunt.registry import ScraperRegistry, default_registry
-from hirehunt.utils.dedupe import deduplicate_jobs
 from hirehunt.utils.normalization import KNOWN_CITIES
 
 logger = logging.getLogger(__name__)
 
 
 def _city_warnings(query: JobQuery) -> list[str]:
-    """Emit warnings for unrecognised cities before scraping starts."""
     warnings: list[str] = []
     if query.city and query.city.lower() not in KNOWN_CITIES:
         warnings.append(
-            f"⚠️  '{query.city}' is not a recognised Indian city. "
+            f"'{query.city}' is not a recognised Indian city. "
             "Results may be empty or incorrect. "
             "Try full city names like 'Bengaluru', 'Mumbai', 'Hyderabad'."
         )
@@ -30,15 +27,27 @@ def _city_warnings(query: JobQuery) -> list[str]:
 
 
 class SearchEngine:
-    def __init__(self, registry: ScraperRegistry | None = None, max_workers: int = 4) -> None:
+    def __init__(
+        self,
+        registry: ScraperRegistry | None = None,
+        max_workers: int = 4,
+        policies: SearchPolicies | None = None,
+    ) -> None:
         self.registry = registry or default_registry()
         self.max_workers = max_workers
+        self.policies = policies or SearchPolicies()
 
     def search(self, query: JobQuery) -> ScrapeResult:
-        sources = query.source_list or self.registry.auto_sources(query.country, query.include_regional)
+        sources = query.source_list or self.registry.auto_sources(
+            query.country,
+            query.include_regional,
+            query.normalized_term,
+            query.job_kind,
+        )
         result = ScrapeResult(
             stats={source: SourceStats() for source in sources},
             warnings=_city_warnings(query),
+            selected_sources=list(sources),
         )
         all_jobs = []
 
@@ -46,76 +55,107 @@ class SearchEngine:
             futures = {}
             for source in sources:
                 scraper = self._create_scraper(source, query)
-                futures[executor.submit(scraper.search, query)] = source
+                futures[executor.submit(scraper.search, query)] = (source, scraper)
 
             for future in as_completed(futures):
-                source = futures[future]
+                source, scraper = futures[future]
                 try:
                     jobs = future.result()
                 except Exception as exc:
                     logger.exception("source failed: %s", source)
                     result.errors[source] = str(exc)
                     result.stats[source].errors += 1
-                    result.warnings.append(f"⚠️  {source}: failed to fetch ({exc.__class__.__name__})")
+                    result.stats[source].completion = CompletionStatus.FAILED
+                    result.stats[source].completion_reason = str(exc)
+                    result.partial = True
+                    result.warnings.append(f"{source}: failed to fetch ({exc.__class__.__name__})")
                     continue
-                result.stats[source].found = len(jobs)
-                # Warn when a source returns 0 results
+                self._record_source_success(result.stats[source], jobs, query, scraper)
+                if result.stats[source].completion == CompletionStatus.PARTIAL:
+                    result.partial = True
                 if len(jobs) == 0:
-                    result.warnings.append(f"ℹ️  {source}: returned 0 results for '{query.normalized_term}'")
+                    result.warnings.append(f"{source}: returned 0 results for '{query.normalized_term}'")
                 all_jobs.extend(jobs)
 
-        filtered = filter_jobs(all_jobs, query)
-        unique, duplicate_count = deduplicate_jobs(filtered)
-        ranked = rank_jobs(unique, query)
-        result.jobs = ranked
-
-        total_found_by_source: dict[str, int] = {}
-        for job in unique:
-            total_found_by_source[job.source] = total_found_by_source.get(job.source, 0) + 1
-        for source, kept in total_found_by_source.items():
-            result.stats.setdefault(source, SourceStats()).kept = kept
-        if sources:
-            result.stats[sources[0]].duplicates = duplicate_count
-
-        # Final warning if everything returned 0
-        if not result.jobs:
-            result.warnings.append(
-                "⚠️  No jobs found. Try: broader search term, different city, or more sources."
-            )
-        return result
+        return self._finalize(result, all_jobs, sources, query)
 
     async def search_async(self, query: JobQuery) -> ScrapeResult:
-        sources = query.source_list or self.registry.auto_sources(query.country, query.include_regional)
+        sources = query.source_list or self.registry.auto_sources(
+            query.country,
+            query.include_regional,
+            query.normalized_term,
+            query.job_kind,
+        )
         result = ScrapeResult(
             stats={source: SourceStats() for source in sources},
             warnings=_city_warnings(query),
+            selected_sources=list(sources),
         )
 
         async def run_source(source: str):
             scraper = self._create_scraper(source, query)
-            return source, await asyncio.to_thread(scraper.search, query)
-
-        tasks = [run_source(source) for source in sources]
-        all_jobs = []
-        for completed in asyncio.as_completed(tasks):
             try:
-                source, jobs = await completed
+                jobs = await asyncio.to_thread(scraper.search, query)
+                return source, scraper, jobs, None
             except Exception as exc:
-                source = "unknown"
-                logger.exception("async source failed")
+                return source, scraper, [], exc
+
+        all_jobs = []
+        for completed in asyncio.as_completed([run_source(source) for source in sources]):
+            source, scraper, jobs, exc = await completed
+            if exc is not None:
+                logger.error("async source failed: %s error=%s", source, exc)
                 result.errors[source] = str(exc)
+                result.stats[source].errors += 1
+                result.stats[source].completion = CompletionStatus.FAILED
+                result.stats[source].completion_reason = str(exc)
+                result.partial = True
+                result.warnings.append(f"{source}: failed to fetch ({exc.__class__.__name__})")
                 continue
-            result.stats[source].found = len(jobs)
+            self._record_source_success(result.stats[source], jobs, query, scraper)
+            if result.stats[source].completion == CompletionStatus.PARTIAL:
+                result.partial = True
+            if len(jobs) == 0:
+                result.warnings.append(f"{source}: returned 0 results for '{query.normalized_term}'")
             all_jobs.extend(jobs)
 
-        filtered = filter_jobs(all_jobs, query)
-        unique, duplicate_count = deduplicate_jobs(filtered)
-        result.jobs = rank_jobs(unique, query)
-        for job in unique:
+        return self._finalize(result, all_jobs, sources, query)
+
+    def _finalize(self, result: ScrapeResult, all_jobs: list, sources: list[str], query: JobQuery) -> ScrapeResult:
+        filtered = self.policies.filtering.apply(all_jobs, query)
+        for source, reasons in filtered.dropped_by_source.items():
+            stats = result.stats.setdefault(source, SourceStats())
+            stats.filter_reasons = dict(reasons)
+            stats.filtered_out = sum(reasons.values())
+
+        deduped = self.policies.deduplication.apply(filtered.jobs, query)
+        for source, count in deduped.duplicates_by_source.items():
+            result.stats.setdefault(source, SourceStats()).duplicates += count
+        result.jobs = self.policies.ranking.rank(deduped.jobs, query)
+
+        for job in deduped.jobs:
             result.stats.setdefault(job.source, SourceStats()).kept += 1
-        if sources:
-            result.stats[sources[0]].duplicates = duplicate_count
+        if not result.jobs:
+            result.warnings.append("No jobs found. Try: broader search term, different city, or more sources.")
         return result
+
+    @staticmethod
+    def _record_source_success(stats: SourceStats, jobs: list, query: JobQuery, scraper) -> None:
+        count = len(jobs)
+        stats.fetched = count
+        stats.parsed = count
+        stats.found = count
+        stats.requests = getattr(scraper, "request_count", 0)
+        limit = query.results_wanted
+        if limit is not None and limit > 0 and count >= limit:
+            stats.completion = CompletionStatus.CAPPED
+            stats.completion_reason = f"results_wanted={limit}"
+        elif not scraper.capabilities.exhaustive_search:
+            stats.completion = CompletionStatus.PARTIAL
+            stats.completion_reason = "source does not guarantee exhaustive search"
+        else:
+            stats.completion = CompletionStatus.EXHAUSTED
+            stats.completion_reason = "source returned no further results"
 
     def _create_scraper(self, source: str, query: JobQuery):
         return self.registry.create(
@@ -124,6 +164,8 @@ class SearchEngine:
             fetch_backend=query.fetch_backend,
             cache_enabled=query.cache_enabled,
             cache_dir=query.cache_dir,
+            request_policy=query.request_policy,
+            cache_backend=query.cache_backend,
         )
 
 

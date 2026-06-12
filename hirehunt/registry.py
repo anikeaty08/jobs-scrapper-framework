@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
+
 from hirehunt.exceptions import UnknownSourceError
+from hirehunt.models import SourceCapabilities
 from hirehunt.scrapers.base import BaseScraper
 
 
@@ -25,10 +28,28 @@ class ScraperRegistry:
     def names(self) -> list[str]:
         return sorted(self._scrapers)
 
-    def auto_sources(self, query_country: str = "", include_regional: bool = True) -> list[str]:
+    def capabilities(self, source: str | None = None) -> SourceCapabilities | dict[str, SourceCapabilities]:
+        if source is not None:
+            try:
+                return self._scrapers[source].capabilities
+            except KeyError as exc:
+                raise UnknownSourceError(f"unknown source: {source}") from exc
+        return {name: scraper.capabilities for name, scraper in sorted(self._scrapers.items())}
+
+    def auto_sources(
+        self,
+        query_country: str = "",
+        include_regional: bool = True,
+        search_term: str = "",
+        job_kind: list[str] | str | None = None,
+    ) -> list[str]:
         names = ["indeed", "linkedin"]
         if include_regional and query_country.lower() in {"", "india", "in"}:
-            names.extend(["internshala", "naukri", "shine", "unstop"])
+            names.extend(["internshala", "naukri", "shine"])
+            kind_text = " ".join(job_kind) if isinstance(job_kind, list) else str(job_kind or "")
+            opportunity_text = f"{search_term} {kind_text}".lower()
+            if re.search(r"\b(hackathon|competition|challenge|contest|fellowship)s?\b", opportunity_text):
+                names.append("unstop")
         return [name for name in names if name in self._scrapers]
 
     def faang_sources(self) -> list[str]:

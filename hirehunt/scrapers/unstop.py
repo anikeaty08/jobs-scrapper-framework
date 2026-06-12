@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import time
 
-from hirehunt.models import Job, JobKind, Money, WorkMode
+from hirehunt.models import Job, JobKind, Money, SourceCapabilities, WorkMode
 from hirehunt.query import JobQuery
 from hirehunt.scrapers.base import BaseScraper
 from hirehunt.utils.normalization import (
@@ -39,6 +39,14 @@ class UnstopScraper(BaseScraper):
     """Unstop — returns hackathons, competitions, and coding challenges via API."""
     source = "unstop"
     default_country = "India"
+    capabilities = SourceCapabilities(
+        countries=("India",),
+        job_kinds=(JobKind.HACKATHON, JobKind.COMPETITION, JobKind.FELLOWSHIP),
+        supported_filters=frozenset({"job_kind"}),
+        pagination=True,
+        exhaustive_search=True,
+        description="Unstop opportunities API",
+    )
 
     def build_url(self, query: JobQuery) -> str:
         return _BASE + "/hackathons"
@@ -48,7 +56,7 @@ class UnstopScraper(BaseScraper):
         page = 1
         page_size = 20
 
-        while len(jobs) < query.results_wanted:
+        while self.wants_more(jobs, query):
             params: dict = {
                 "page":    page,
                 "size":    page_size,
@@ -202,3 +210,8 @@ def _parse_unstop_item(item: dict, query: JobQuery) -> Job | None:
         source_job_id= str(item.get("id") or ""),
         raw          = {"type": item_type, "subtype": item_subtype},
     )
+
+
+def parse_unstop_item(item: dict, query: JobQuery) -> Job | None:
+    """Public parser helper used by tests and fixture validation."""
+    return _parse_unstop_item(item, query)

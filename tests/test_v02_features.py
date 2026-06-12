@@ -2,13 +2,14 @@ import asyncio
 import tempfile
 import unittest
 
-from jobhunter.engine import SearchEngine
-from jobhunter.models import Job, WorkMode
-from jobhunter.query import JobProfile, JobQuery
-from jobhunter.ranking import rank_jobs
-from jobhunter.registry import ScraperRegistry
-from jobhunter.scrapers.base import BaseScraper
-from jobhunter.utils.cache import PageCache
+from hirehunt.engine import SearchEngine
+from hirehunt.models import Job, WorkMode
+from hirehunt.query import JobProfile, JobQuery
+from hirehunt.ranking import rank_jobs
+from hirehunt.registry import ScraperRegistry
+from hirehunt.registry import default_registry
+from hirehunt.scrapers.base import BaseScraper
+from hirehunt.utils.cache import PageCache
 
 
 class MockScraper(BaseScraper):
@@ -31,11 +32,31 @@ class MockScraper(BaseScraper):
 
 
 class V02FeatureTests(unittest.TestCase):
+    def test_auto_sources_only_include_unstop_for_opportunity_searches(self):
+        registry = default_registry()
+        job_sources = registry.auto_sources("India", search_term="software developer")
+        opportunity_sources = registry.auto_sources("India", search_term="coding hackathon")
+
+        self.assertNotIn("unstop", job_sources)
+        self.assertIn("unstop", opportunity_sources)
+
     def test_page_cache_round_trip(self):
         with tempfile.TemporaryDirectory() as tmp:
             cache = PageCache(tmp)
             cache.set("mock", "https://example.com/jobs", "<html>ok</html>")
             self.assertEqual(cache.get("mock", "https://example.com/jobs"), "<html>ok</html>")
+
+    def test_zero_or_none_result_limit_is_uncapped(self):
+        scraper = MockScraper()
+        jobs = [
+            Job("One", "Acme", "mock", "https://example.com/1"),
+            Job("Two", "Acme", "mock", "https://example.com/2"),
+        ]
+
+        self.assertTrue(scraper.wants_more(jobs, JobQuery(results_wanted=0)))
+        self.assertTrue(scraper.wants_more(jobs, JobQuery(results_wanted=None)))
+        self.assertEqual(scraper.limit(jobs, JobQuery(results_wanted=0)), jobs)
+        self.assertEqual(scraper.limit(jobs, JobQuery(results_wanted=None)), jobs)
 
     def test_async_search_path(self):
         registry = ScraperRegistry()

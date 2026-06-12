@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 import requests
 
+from hirehunt.policies import RequestPolicy
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,21 +45,40 @@ def build_session(proxies: list[str] | None = None, user_agent: str | None = Non
     return session
 
 
-def safe_get(session: requests.Session, url: str, *, params: dict | None = None, config: HttpConfig | None = None):
+def safe_get(
+    session: requests.Session,
+    url: str,
+    *,
+    params: dict | None = None,
+    headers: dict | None = None,
+    config: HttpConfig | None = None,
+    policy: RequestPolicy | None = None,
+):
     cfg = config or HttpConfig()
-    for attempt in range(cfg.retries):
+    retries = policy.retries if policy else cfg.retries
+    timeout = policy.timeout if policy else cfg.timeout
+    retry_statuses = policy.retry_statuses if policy else frozenset({408, 429, 500, 502, 503, 504})
+    sleep = (policy.sleep or time.sleep) if policy else time.sleep
+    for attempt in range(max(1, retries)):
+        if policy and policy.max_delay > 0:
+            sleep(random.uniform(policy.min_delay, policy.max_delay))
         try:
-            response = session.get(url, params=params, timeout=cfg.timeout)
+            response = session.get(url, params=params, headers=headers, timeout=timeout)
             if response.status_code == 200:
                 return response
-            if response.status_code in {403, 406, 429}:
+            if response.status_code in {403, 406}:
                 logger.warning("source blocked request: %s status=%s", url, response.status_code)
                 return response
+            if response.status_code in retry_statuses and attempt + 1 < retries:
+                delay = (policy.backoff_base**attempt) if policy else (2**attempt)
+                sleep(delay)
+                continue
             logger.warning("request failed: %s status=%s", url, response.status_code)
             return response
         except requests.RequestException as exc:
             logger.warning("request error: %s attempt=%s error=%s", url, attempt + 1, exc)
-            time.sleep((2**attempt) + random.uniform(cfg.min_delay, cfg.max_delay))
+            delay = (policy.backoff_base**attempt) if policy else (2**attempt) + random.uniform(cfg.min_delay, cfg.max_delay)
+            sleep(delay)
     return None
 
 

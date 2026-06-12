@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from hirehunt.policies import CacheBackend, RequestPolicy
+
 
 @dataclass
 class JobProfile:
@@ -46,13 +48,16 @@ class JobQuery:
     currency: str = "INR"
 
     posted_within_days: int | None = None
-    results_wanted: int = 50
+    results_wanted: int | None = 50
+    dedupe_mode: str = "strict"
     fetch_descriptions: bool = False
     fetch_backend: str = "requests"
     cache_enabled: bool = False
     cache_dir: str = ".jobhunter_cache"
+    cache_backend: CacheBackend | None = None
     include_regional: bool = True
     proxies: list[str] = field(default_factory=list)
+    request_policy: RequestPolicy | None = None
     profile: JobProfile | None = None
 
     def __post_init__(self) -> None:
@@ -66,6 +71,10 @@ class JobQuery:
             self.search_term = self.role
         if isinstance(self.profile, dict):
             self.profile = JobProfile(**self.profile)
+        if isinstance(self.request_policy, dict):
+            self.request_policy = RequestPolicy(**self.request_policy)
+        if self.dedupe_mode not in {"strict", "heuristic", "none"}:
+            raise ValueError("dedupe_mode must be 'strict', 'heuristic', or 'none'")
 
     @classmethod
     def from_kwargs(cls, **kwargs) -> "JobQuery":

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hirehunt"
-version = "0.2.2"
+version = "0.3.0"
 description = "A programmable job-scraping framework for India & global markets. Aggregates Naukri, Shine, Internshala, LinkedIn, Indeed, and FAANG companies into a unified dataset."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -26,4 +26,4 @@ dev = ["build>=1.2.0", "twine>=5.0.0"]
 hirehunt = "hirehunt.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["hirehunt*"]
+include = ["hirehunt*", "jobhunter*"]

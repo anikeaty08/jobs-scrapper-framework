@@ -29,6 +29,9 @@ utils/       ← HTTP fetcher, normalization helpers, cache, dedup
 
 - **Every scraper returns `list[Job]`** — same shape regardless of source
 - **Filters are soft** — if a job is missing a field (e.g. no salary data), it passes through rather than being dropped
+- **Capabilities are explicit** — each scraper declares regions, job kinds, filters, pagination, and exhaustive support
+- **Policies are injectable** — filtering, ranking, deduplication, retry, and caching can be replaced
+- **Results are diagnosable** — completion state and filter reasons are reported per source
 - **Scraping is parallel** — `engine.py` runs all sources concurrently via `ThreadPoolExecutor`
 - **Registry-driven** — adding a new source = one file + one line in `scrapers/__init__.py`
 
@@ -41,6 +44,6 @@ jobs = scrape_jobs(
     search_term="python developer",
     sources=["naukri", "shine", "linkedin"],
     city="Bengaluru",
-    results_wanted=50,
+    results_wanted=50,  # None or 0 fetches until each source is exhausted
 )
 ```

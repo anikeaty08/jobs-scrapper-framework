@@ -19,16 +19,19 @@ Reverse engineering findings:
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime, timezone
 
 import requests
 from bs4 import BeautifulSoup
 
-from hirehunt.models import Job, JobKind, Money, SalaryPeriod, WorkMode
+from hirehunt.models import Job, JobKind, Money, SalaryPeriod, SourceCapabilities, WorkMode
 from hirehunt.query import JobQuery
 from hirehunt.scrapers.base import BaseScraper
+from hirehunt.utils.http import safe_get
 from hirehunt.utils.normalization import (
+    CITY_ALIASES,
     clean_text,
     normalize_city,
     normalize_skills,
@@ -55,10 +58,28 @@ _RESULTS_PER_PAGE = 20
 class NaukriScraper(BaseScraper):
     source = "naukri"
     default_country = "India"
+    capabilities = SourceCapabilities(
+        countries=("India",),
+        job_kinds=(JobKind.JOB, JobKind.INTERNSHIP),
+        supported_filters=frozenset({"city", "experience_min", "salary_min"}),
+        pagination=True,
+        exhaustive_search=True,
+        description="Naukri REST job search",
+    )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._session: requests.Session | None = None
+
+    def build_url(self, query: JobQuery) -> str:
+        location = query.city or query.location or ""
+        loc_slug = location.lower().replace(" ", "-") if location else ""
+        term_slug = query.normalized_term.lower().replace(" ", "-")
+        return (
+            f"{_BASE}/{term_slug}-jobs-in-{loc_slug}"
+            if loc_slug
+            else f"{_BASE}/{term_slug}-jobs"
+        )
 
     def _get_session(self, keyword: str, location: str) -> requests.Session:
         """Warm up a session with Naukri cookies required by the API."""
@@ -67,15 +88,10 @@ class NaukriScraper(BaseScraper):
         sess = requests.Session()
         sess.headers.update({"User-Agent": _UA, "Accept-Language": "en-US,en;q=0.9"})
         # Build a warm-up URL that mirrors what the browser would fetch
-        loc_slug  = location.lower().replace(" ", "-") if location else ""
-        term_slug = keyword.lower().replace(" ", "-")
-        warmup = (
-            f"{_BASE}/{term_slug}-jobs-in-{loc_slug}"
-            if loc_slug else
-            f"{_BASE}/{term_slug}-jobs"
-        )
+        warmup = self.build_url(JobQuery(search_term=keyword, city=location))
         try:
-            sess.get(warmup, timeout=15)
+            self.request_count += 1
+            safe_get(sess, warmup, policy=self.request_policy)
         except Exception:
             pass
         self._session = sess
@@ -89,7 +105,7 @@ class NaukriScraper(BaseScraper):
         jobs: list[Job] = []
         page = 1
 
-        while len(jobs) < query.results_wanted:
+        while self.wants_more(jobs, query):
             params = {
                 "noOfResults": _RESULTS_PER_PAGE,
                 "urlType":     "search_by_keyword",
@@ -104,14 +120,15 @@ class NaukriScraper(BaseScraper):
             if query.salary_min:
                 params["salary"] = int(query.salary_min / 100_000)  # convert to LPA
 
-            try:
-                resp = sess.get(
-                    _API,
-                    params=params,
-                    headers=_NAUKRI_HEADERS,
-                    timeout=20,
-                )
-            except Exception:
+            self.request_count += 1
+            resp = safe_get(
+                sess,
+                _API,
+                params=params,
+                headers=_NAUKRI_HEADERS,
+                policy=self.request_policy,
+            )
+            if resp is None:
                 break
 
             if resp.status_code != 200:
@@ -165,6 +182,10 @@ def _parse_naukri_job(item: dict, query: JobQuery) -> Job | None:
 
     # Location — city is comma-separated list
     raw_city = clean_text(item.get("city") or item.get("CONTCITY") or "")
+    if not raw_city:
+        raw_city = _parse_naukri_locations(
+            item.get("cityfield") or item.get("PREFLOC") or item.get("PREFLOC_SEL") or ""
+        )
     city = normalize_city(raw_city.split(",")[0]) if raw_city else normalize_city(query.city)
 
     # Salary — minSal/maxSal in LPA (Lakhs Per Annum)
@@ -244,6 +265,26 @@ def _to_float(val) -> float | None:
         return float(val) if val not in (None, "", 0, "0") else None
     except (TypeError, ValueError):
         return None
+
+
+def _parse_naukri_locations(raw: str) -> str:
+    text = clean_text(raw).lower()
+    if not text:
+        return ""
+
+    matches: list[tuple[int, str]] = []
+    for alias, canonical in CITY_ALIASES.items():
+        if len(alias) < 4:
+            continue
+        match = re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", text)
+        if match:
+            matches.append((match.start(), canonical))
+
+    locations: list[str] = []
+    for _, location in sorted(matches):
+        if location not in locations:
+            locations.append(location)
+    return ", ".join(locations)
 
 
 def _parse_naukri_date(raw: str) -> str | None:

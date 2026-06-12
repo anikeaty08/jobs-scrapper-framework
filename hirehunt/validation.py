@@ -30,7 +30,12 @@ class SourceValidation:
 
 def validate_sources(query: JobQuery, sources: list[str] | None = None) -> list[SourceValidation]:
     registry = default_registry()
-    selected = sources or query.source_list or registry.auto_sources(query.country, query.include_regional)
+    selected = sources or query.source_list or registry.auto_sources(
+        query.country,
+        query.include_regional,
+        query.normalized_term,
+        query.job_kind,
+    )
     results: list[SourceValidation] = []
 
     for source in selected:
@@ -43,12 +48,12 @@ def validate_sources(query: JobQuery, sources: list[str] | None = None) -> list[
                 cache_enabled=query.cache_enabled,
                 cache_dir=query.cache_dir,
             )
-            if source == "indeed":
+            if source in {"indeed", "linkedin", "naukri", "shine", "unstop"}:
                 jobs = scraper.search(query)
                 item.url = scraper.build_url(query) if hasattr(scraper, "build_url") else ""
-                item.status_code = getattr(scraper, "last_status_code", 200 if jobs else 0)
+                item.status_code = getattr(scraper, "last_status_code", 200 if jobs else 0) or (200 if jobs else 0)
                 item.backend = getattr(scraper, "last_backend", "requests")
-                item.fetched = item.status_code == 200
+                item.fetched = bool(jobs) or item.status_code == 200
                 item.parsed_count = len(jobs)
                 item.sample_titles = [job.title for job in jobs[:5]]
                 results.append(item)
@@ -83,10 +88,6 @@ def _parse_with_source(scraper, html: str, query: JobQuery):
         from hirehunt.scrapers.linkedin import parse_linkedin_jobs
 
         return parse_linkedin_jobs(html, query)
-    if source == "unstop":
-        from hirehunt.scrapers.unstop import parse_unstop_jobs
-
-        return parse_unstop_jobs(html, query)
     return scraper.search(query)
 
 
